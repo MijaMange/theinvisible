@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { AnatomicalNavigation } from './features/neuron/components/AnatomicalNavigation'
+import { StructureInfoPanel } from './features/neuron/components/StructureInfoPanel'
+import { useNeuronSelection } from './features/neuron/hooks/useNeuronSelection'
 import { NeuronScene } from './features/neuron/NeuronScene'
 import './App.css'
 
@@ -23,8 +26,28 @@ function usePrefersReducedMotion() {
 function App() {
   const prefersReducedMotion = usePrefersReducedMotion()
   const orientation = useRef({ x: 0, y: 0 })
+  const navigationRef = useRef<HTMLButtonElement>(null)
+  const { state, select, hover, close } = useNeuronSelection()
 
-  function handleSceneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  const handleClose = useCallback(() => {
+    close()
+    navigationRef.current?.focus()
+  }, [close])
+
+  useEffect(() => {
+    if (!state.selected) return
+
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      handleClose()
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [handleClose, state.selected])
+
+  function handleSceneKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const step = 0.08
 
     switch (event.key) {
@@ -57,7 +80,7 @@ function App() {
         className="scene-frame"
         role="group"
         tabIndex={0}
-        aria-label="Interactive three-dimensional multipolar neuron"
+        aria-label="Interactive three-dimensional cortical pyramidal neuron"
         aria-describedby="scene-description"
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home"
         onKeyDown={handleSceneKeyDown}
@@ -72,10 +95,14 @@ function App() {
           <NeuronScene
             orientation={orientation}
             prefersReducedMotion={prefersReducedMotion}
+            selected={state.selected}
+            hovered={state.hovered}
+            onSelect={select}
+            onHover={hover}
           />
         </Canvas>
         <p className="visually-hidden" id="scene-description">
-          A pearl-toned multipolar neuron with an irregular cell body, branching
+          A pearl-toned cortical pyramidal neuron with an irregular cell body, branching
           dendrites, and a single tapered axon. Use the arrow keys to adjust its
           orientation or Home to reset it.
         </p>
@@ -85,6 +112,15 @@ function App() {
         <h1 id="page-title">THE INVISIBLE</h1>
         <p>An exploration of the architecture of thought.</p>
       </header>
+      <AnatomicalNavigation
+        selected={state.selected}
+        onSelect={select}
+        overviewButtonRef={navigationRef}
+      />
+      <StructureInfoPanel
+        structure={state.selected}
+        onClose={handleClose}
+      />
     </main>
   )
 }
