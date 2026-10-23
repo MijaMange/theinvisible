@@ -91,9 +91,13 @@ function createPointMaterial(opacity: number, scale: number) {
 
 type CosmicEnvironmentProps = {
   prefersReducedMotion: boolean
+  closeUp: boolean
 }
 
-export function CosmicEnvironment({ prefersReducedMotion }: CosmicEnvironmentProps) {
+export function CosmicEnvironment({
+  prefersReducedMotion,
+  closeUp,
+}: CosmicEnvironmentProps) {
   const farLayer = useRef<Group>(null)
   const nearLayer = useRef<Group>(null)
   const { camera, size, gl } = useThree()
@@ -107,12 +111,12 @@ export function CosmicEnvironment({ prefersReducedMotion }: CosmicEnvironmentPro
     [],
   )
   const starMaterial = useMemo(
-    () => createPointMaterial(0.72, pointScale),
-    [pointScale],
+    () => createPointMaterial(closeUp ? 0.34 : 0.62, pointScale),
+    [closeUp, pointScale],
   )
   const dustMaterial = useMemo(
-    () => createPointMaterial(0.25, pointScale),
-    [pointScale],
+    () => createPointMaterial(closeUp ? 0.08 : 0.2, pointScale),
+    [closeUp, pointScale],
   )
 
   useEffect(() => {

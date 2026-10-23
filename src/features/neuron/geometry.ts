@@ -1,14 +1,29 @@
 import {
   BufferGeometry,
+  Box3,
   CatmullRomCurve3,
+  Color,
   Float32BufferAttribute,
+  Sphere,
   SphereGeometry,
   Vector3,
 } from 'three'
+import morphologyData from './data/allen-pyramidal-524850271.swc?raw'
+import type { NeuronFocusTargets } from './types'
+
+type SwcNode = {
+  id: number
+  type: number
+  position: Vector3
+  radius: number
+  parentId: number
+  children: SwcNode[]
+}
 
 type TubePath = {
   points: Vector3[]
   radii: number[]
+  color: Color
   capped: boolean
 }
 
@@ -18,22 +33,10 @@ export type NeuronGeometry = {
   dendrites: BufferGeometry
   hillock: BufferGeometry
   axon: BufferGeometry
+  axonHitArea: BufferGeometry
+  spines: BufferGeometry
+  focusTargets: NeuronFocusTargets
 }
-
-const ROOT_DIRECTIONS = [
-  [-0.96, 0.25, -0.18],
-  [-0.88, -0.48, 0.22],
-  [-0.62, 0.73, 0.28],
-  [-0.36, -0.89, -0.3],
-  [-0.12, 0.95, -0.26],
-  [0.16, -0.98, 0.12],
-  [0.53, 0.78, 0.31],
-  [0.72, -0.64, -0.25],
-  [0.96, 0.32, -0.12],
-  [0.91, -0.2, 0.34],
-  [-0.94, -0.12, -0.35],
-  [0.28, 0.87, -0.39],
-] as const
 
 function seededRandom(seed: number) {
   let state = seed >>> 0
@@ -47,6 +50,41 @@ function seededRandom(seed: number) {
   }
 }
 
+function parseMorphology(source: string) {
+  const nodes = new Map<number, SwcNode>()
+
+  for (const line of source.split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/)
+    if (fields.length < 7) continue
+
+    const [id, type, x, y, z, radius, parentId] = fields.map(Number)
+    if (![id, type, x, y, z, radius, parentId].every(Number.isFinite)) {
+      throw new Error('The neuron SWC morphology contains an invalid record.')
+    }
+    nodes.set(id, {
+      id,
+      type,
+      position: new Vector3(x, y, z),
+      radius,
+      parentId,
+      children: [],
+    })
+  }
+
+  for (const node of nodes.values()) {
+    const parent = nodes.get(node.parentId)
+    if (parent) parent.children.push(node)
+  }
+
+  const soma = [...nodes.values()].find((node) => node.type === 1)
+  const apicalNodes = [...nodes.values()].filter((node) => node.type === 4)
+  if (!soma || apicalNodes.length === 0) {
+    throw new Error('The neuron SWC morphology is missing its soma or apical dendrite.')
+  }
+
+  return { nodes, soma, apicalNodes }
+}
+
 function perpendicularTo(direction: Vector3) {
   const reference = Math.abs(direction.z) > 0.84
     ? new Vector3(0, 1, 0)
@@ -54,119 +92,69 @@ function perpendicularTo(direction: Vector3) {
   return direction.clone().cross(reference).normalize()
 }
 
-function createCurvedPoints(
-  start: Vector3,
-  direction: Vector3,
-  length: number,
-  random: () => number,
-) {
-  const primaryBend = perpendicularTo(direction)
-  const secondaryBend = direction.clone().cross(primaryBend).normalize()
-  const bendAmount = length * (0.08 + random() * 0.1)
-  const secondaryAmount = length * (random() - 0.5) * 0.12
-  const anchors = [
-    start.clone(),
-    start.clone()
-      .addScaledVector(direction, length * 0.32)
-      .addScaledVector(primaryBend, bendAmount * (random() - 0.25))
-      .addScaledVector(secondaryBend, secondaryAmount),
-    start.clone()
-      .addScaledVector(direction, length * 0.69)
-      .addScaledVector(primaryBend, bendAmount * (random() + 0.2))
-      .addScaledVector(secondaryBend, -secondaryAmount * 0.6),
-    start.clone()
-      .addScaledVector(direction, length)
-      .addScaledVector(primaryBend, bendAmount * (random() - 0.7))
-      .addScaledVector(secondaryBend, secondaryAmount * 0.5),
-  ]
-
-  return new CatmullRomCurve3(anchors).getPoints(12)
-}
-
-function growBranch(
-  start: Vector3,
-  direction: Vector3,
-  length: number,
-  radius: number,
-  depth: number,
-  paths: TubePath[],
-  random: () => number,
-) {
-  const normalizedDirection = direction.clone().normalize()
-  const points = createCurvedPoints(start, normalizedDirection, length, random)
-  const splitIndex = depth > 0
-    ? Math.floor(points.length * (0.61 + random() * 0.12))
-    : points.length - 1
-  const segmentPoints = points.slice(0, splitIndex + 1)
-  const segmentRadii = segmentPoints.map((_, index) => {
-    const progress = index / Math.max(1, segmentPoints.length - 1)
-    return radius * (1 - progress * 0.25)
+function samplePath(path: TubePath) {
+  const curve = new CatmullRomCurve3(path.points, false, 'centripetal')
+  const divisions = Math.max(3, (path.points.length - 1) * 3)
+  const points = curve.getPoints(divisions)
+  const radii = points.map((_, index) => {
+    const progress = index / divisions
+    const scaledIndex = progress * (path.radii.length - 1)
+    const low = Math.floor(scaledIndex)
+    const high = Math.min(path.radii.length - 1, low + 1)
+    const blend = scaledIndex - low
+    return path.radii[low] * (1 - blend) + path.radii[high] * blend
   })
 
-  paths.push({ points: segmentPoints, radii: segmentRadii, capped: depth === 0 })
-
-  if (depth === 0) return
-
-  const junction = segmentPoints[segmentPoints.length - 1]
-  const incoming = points[splitIndex + 1]
-    .clone()
-    .sub(points[splitIndex - 1])
-    .normalize()
-  const branchingAxis = perpendicularTo(incoming)
-  const spread = 0.42 + random() * 0.31
-  const childLength = length * (0.55 + random() * 0.18)
-  const childRadius = segmentRadii[segmentRadii.length - 1] * 0.9
-
-  for (const side of [-1, 1]) {
-    const childDirection = incoming
-      .clone()
-      .applyAxisAngle(branchingAxis, side * spread)
-      .addScaledVector(new Vector3(0, 0, 1), (random() - 0.5) * 0.18)
-      .normalize()
-
-    growBranch(
-      junction,
-      childDirection,
-      childLength * (0.88 + random() * 0.24),
-      childRadius,
-      depth - 1,
-      paths,
-      random,
-    )
-  }
+  return { points, radii }
 }
 
-function createTubeGeometry(paths: TubePath[], radialSegments: number) {
+function createTubeGeometry(
+  paths: TubePath[],
+  radialSegments: number,
+  junctions: Array<{ point: Vector3; radius: number; color: Color }> = [],
+) {
   const positions: number[] = []
+  const colors: number[] = []
   const indices: number[] = []
 
-  for (const path of paths) {
-    const firstVertex = positions.length / 3
-    const ringCount = path.points.length
+  const appendPoint = (point: Vector3, color: Color) => {
+    positions.push(point.x, point.y, point.z)
+    colors.push(color.r, color.g, color.b)
+  }
 
-    for (let ringIndex = 0; ringIndex < ringCount; ringIndex += 1) {
-      const previous = path.points[Math.max(0, ringIndex - 1)]
-      const next = path.points[Math.min(ringCount - 1, ringIndex + 1)]
+  for (const path of paths) {
+    const { points, radii } = samplePath(path)
+    const firstVertex = positions.length / 3
+    let previousNormal: Vector3 | undefined
+
+    for (let ringIndex = 0; ringIndex < points.length; ringIndex += 1) {
+      const previous = points[Math.max(0, ringIndex - 1)]
+      const next = points[Math.min(points.length - 1, ringIndex + 1)]
       const tangent = next.clone().sub(previous).normalize()
-      const normal = perpendicularTo(tangent)
+      const normal = previousNormal
+        ? previousNormal.clone().addScaledVector(
+          tangent,
+          -previousNormal.dot(tangent),
+        ).normalize()
+        : perpendicularTo(tangent)
+      if (normal.lengthSq() < 1e-6) normal.copy(perpendicularTo(tangent))
       const binormal = tangent.clone().cross(normal).normalize()
-      const center = path.points[ringIndex]
-      const radius = path.radii[ringIndex]
+      const center = points[ringIndex]
+      const radius = radii[ringIndex]
 
       for (let side = 0; side < radialSegments; side += 1) {
         const angle = (side / radialSegments) * Math.PI * 2
-        const radial = normal
-          .clone()
+        const radial = normal.clone()
           .multiplyScalar(Math.cos(angle))
           .addScaledVector(binormal, Math.sin(angle))
           .normalize()
-        const vertex = center.clone().addScaledVector(radial, radius)
-
-        positions.push(vertex.x, vertex.y, vertex.z)
+        appendPoint(center.clone().addScaledVector(radial, radius), path.color)
       }
+
+      previousNormal = normal
     }
 
-    for (let ringIndex = 0; ringIndex < ringCount - 1; ringIndex += 1) {
+    for (let ringIndex = 0; ringIndex < points.length - 1; ringIndex += 1) {
       for (let side = 0; side < radialSegments; side += 1) {
         const nextSide = (side + 1) % radialSegments
         const first = firstVertex + ringIndex * radialSegments + side
@@ -179,151 +167,319 @@ function createTubeGeometry(paths: TubePath[], radialSegments: number) {
 
     if (path.capped) {
       const tipIndex = positions.length / 3
-      const tip = path.points[ringCount - 1]
-      positions.push(tip.x, tip.y, tip.z)
-
-      const lastRing = firstVertex + (ringCount - 1) * radialSegments
+      appendPoint(points[points.length - 1], path.color)
+      const lastRing = firstVertex + (points.length - 1) * radialSegments
       for (let side = 0; side < radialSegments; side += 1) {
-        indices.push(lastRing + side, lastRing + ((side + 1) % radialSegments), tipIndex)
+        indices.push(
+          lastRing + side,
+          lastRing + ((side + 1) % radialSegments),
+          tipIndex,
+        )
       }
     }
   }
 
+  for (const junction of junctions) {
+    const sphere = new SphereGeometry(junction.radius, 14, 10)
+    const spherePositions = sphere.attributes.position
+    const sphereIndices = sphere.index
+    const firstVertex = positions.length / 3
+
+    for (let index = 0; index < spherePositions.count; index += 1) {
+      appendPoint(
+        new Vector3()
+          .fromBufferAttribute(spherePositions, index)
+          .add(junction.point),
+        junction.color,
+      )
+    }
+    if (sphereIndices) {
+      for (const index of sphereIndices.array) {
+        indices.push(firstVertex + index)
+      }
+    }
+    sphere.dispose()
+  }
+
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('color', new Float32BufferAttribute(colors, 3))
   geometry.setIndex(indices)
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
   return geometry
 }
 
-function createOrganicSoma(seed: number) {
-  const geometry = new SphereGeometry(0.5, 56, 40)
+function createSomaGeometry(seed: number, radius: number) {
+  const geometry = new SphereGeometry(1, 96, 64)
   const positions = geometry.attributes.position
+  const normals: number[] = []
   const colors: number[] = []
   const phase = (seed % 997) * 0.013
+  const smoothstep = (value: number) => {
+    const t = Math.max(0, Math.min(1, value))
+    return t * t * (3 - 2 * t)
+  }
 
   for (let index = 0; index < positions.count; index += 1) {
     const direction = new Vector3().fromBufferAttribute(positions, index).normalize()
-    const variation =
-      Math.sin(direction.x * 3.1 + phase) * Math.cos(direction.y * 2.8 - phase) * 0.035 +
-      Math.sin(direction.z * 3.7 + direction.x * 2.2 + phase) * 0.022 +
-      direction.y * 0.025 +
-      direction.x * direction.z * 0.018
-    const radialScale = 1 + variation
-    const surfaceTone = 0.97 + variation * 0.6
+    const angle = Math.atan2(direction.z, direction.x)
+    const upperTaper = smoothstep(direction.y)
+    const lowerFullness = smoothstep(-direction.y)
+    const irregularity =
+      Math.sin(direction.x * 3.1 + phase) * Math.cos(direction.z * 2.7 - phase) * 0.018 +
+      Math.sin(direction.y * 3.8 + direction.x * 2.1) * 0.012 +
+      Math.sin(direction.x * 15 + direction.y * 11 + phase) * 0.0025
+    const triangularContour = 1 + Math.cos(angle * 3 + phase) * 0.04
+    const width = radius * triangularContour *
+      (1 - upperTaper * 0.36 + lowerFullness * 0.1 + irregularity)
 
     positions.setXYZ(
       index,
-      direction.x * radialScale * 0.57,
-      direction.y * radialScale * 0.49,
-      direction.z * radialScale * 0.52,
+      direction.x * width,
+      direction.y * radius * 1.32 + irregularity * radius,
+      direction.z * width * 0.84,
     )
-    colors.push(surfaceTone, surfaceTone * 0.99, surfaceTone * 0.96)
+    const normal = new Vector3(
+      direction.x,
+      direction.y / (1.32 * 1.32),
+      direction.z / (0.84 * 0.84),
+    ).normalize()
+    normals.push(normal.x, normal.y, normal.z)
+
+    const tone = 0.965 + irregularity
+    colors.push(tone, tone * 0.99, tone * 0.96)
   }
 
   geometry.setAttribute('color', new Float32BufferAttribute(colors, 3))
+  geometry.setAttribute('normal', new Float32BufferAttribute(normals, 3))
   positions.needsUpdate = true
-  geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
   return geometry
 }
 
-function createSmoothPath(
-  anchors: Vector3[],
-  segmentCount: number,
-  startRadius: number,
-  endRadius: number,
-): TubePath {
-  const points: Vector3[] = []
-
-  for (let index = 0; index <= segmentCount; index += 1) {
-    const progress = index / segmentCount
-    const scaledIndex = progress * (anchors.length - 1)
-    const anchorIndex = Math.min(anchors.length - 2, Math.floor(scaledIndex))
-    const localProgress = scaledIndex - anchorIndex
-    const before = anchors[Math.max(0, anchorIndex - 1)]
-    const current = anchors[anchorIndex]
-    const next = anchors[anchorIndex + 1]
-    const after = anchors[Math.min(anchors.length - 1, anchorIndex + 2)]
-    const progressSquared = localProgress * localProgress
-    const progressCubed = progressSquared * localProgress
-    const point = new Vector3()
-
-    for (const axis of ['x', 'y', 'z'] as const) {
-      point[axis] = 0.5 * (
-        2 * current[axis] +
-        (-before[axis] + next[axis]) * localProgress +
-        (2 * before[axis] - 5 * current[axis] + 4 * next[axis] - after[axis]) * progressSquared +
-        (-before[axis] + 3 * current[axis] - 3 * next[axis] + after[axis]) * progressCubed
-      )
-    }
-
-    points.push(point)
+function buildNeuronGeometry(seed: number): NeuronGeometry {
+  const random = seededRandom(seed)
+  const { nodes, soma, apicalNodes } = parseMorphology(morphologyData)
+  const apicalTip = apicalNodes.reduce((farthest, node) =>
+    node.position.distanceToSquared(soma.position) >
+    farthest.position.distanceToSquared(soma.position)
+      ? node
+      : farthest,
+  )
+  const up = apicalTip.position.clone().sub(soma.position).normalize()
+  const reference = Math.abs(up.z) < 0.9
+    ? new Vector3(0, 0, 1)
+    : new Vector3(1, 0, 0)
+  const right = up.clone().cross(reference).normalize()
+  const forward = right.clone().cross(up).normalize()
+  const orient = (position: Vector3) => {
+    const relative = position.clone().sub(soma.position)
+    return new Vector3(relative.dot(right), relative.dot(up), relative.dot(forward))
   }
 
-  const radii = points.map((_, index) => {
-    const progress = index / (points.length - 1)
-    return startRadius * (1 - progress) + endRadius * progress
-  })
+  const orientedDendrites = [...nodes.values()]
+    .filter((node) => node.type === 3 || node.type === 4)
+    .map((node) => orient(node.position))
+  const lowerBound = Math.min(...orientedDendrites.map((point) => point.y), -85)
+  const upperBound = Math.max(...orientedDendrites.map((point) => point.y))
+  const scale = 7.8 / (upperBound - lowerBound)
+  const somaRadius = Math.max(soma.radius * scale * 3, 0.26)
+  const positionOf = (point: Vector3) => point.multiplyScalar(scale)
+  const radiusOf = (radius: number) => Math.min(
+    0.09,
+    Math.max(0.008, radius * scale * 4.8),
+  )
+  const childrenOfType = (node: SwcNode, type: number) =>
+    node.children.filter((child) => child.type === type)
+  const dendritePaths: TubePath[] = []
+  const spinePaths: TubePath[] = []
+  const spineHeads: Array<{ point: Vector3; radius: number; color: Color }> = []
+  const junctions: Array<{ point: Vector3; radius: number; color: Color }> = []
+  const basalTint = new Color('#e8e1d5')
+  const apicalTint = new Color('#eee7dc')
+  const spinyTint = new Color('#f0e8dc')
+  let spineCount = 0
 
-  return { points, radii, capped: true }
+  for (const start of nodes.values()) {
+    if (start.type !== 3 && start.type !== 4) continue
+    const parent = nodes.get(start.parentId)
+    if (!parent) continue
+    const parentBranches = childrenOfType(parent, start.type)
+    if (parent.type !== 1 && parentBranches.length === 1) continue
+
+    const chain: SwcNode[] = []
+    let current: SwcNode | undefined = start
+    while (current) {
+      chain.push(current)
+      const sameTypeChildren = childrenOfType(current, current.type)
+      if (current.children.length !== 1 || sameTypeChildren.length !== 1) break
+      current = sameTypeChildren[0]
+    }
+
+    const color = start.type === 4 ? apicalTint : basalTint
+    const points = chain.map((node) => positionOf(orient(node.position)))
+    const radii = chain.map((node) => radiusOf(node.radius))
+
+    if (parent.type === 1) {
+      const nextPoint = points[Math.min(2, points.length - 1)]
+      const outward = nextPoint.clone().normalize()
+      const somaSurface = new Vector3(
+        outward.x * somaRadius,
+        outward.y * somaRadius * 1.12,
+        outward.z * somaRadius * 0.88,
+      )
+      const firstOutside = points.findIndex((point) => point.length() > somaRadius * 0.82)
+      const startIndex = Math.max(0, firstOutside)
+      points.splice(0, startIndex, somaSurface)
+      radii.splice(0, startIndex, Math.max(radii[startIndex] ?? 0.012, somaRadius * 0.56))
+    } else {
+      points.unshift(positionOf(orient(parent.position)))
+      radii.unshift(radiusOf(parent.radius))
+    }
+
+    if (points.length < 2) continue
+    const isTerminal = chain[chain.length - 1].children.length === 0
+    dendritePaths.push({ points, radii, color, capped: isTerminal })
+
+    const terminal = chain[chain.length - 1]
+    if (childrenOfType(terminal, terminal.type).length > 1) {
+      junctions.push({
+        point: positionOf(orient(terminal.position)),
+        radius: Math.max(radiusOf(terminal.radius) * 1.08, 0.012),
+        color,
+      })
+    }
+
+    if (spineCount >= 460 || chain.length < 8) continue
+    const stride = 9 + Math.floor(random() * 8)
+    for (let index = 3; index < chain.length - 2 && spineCount < 460; index += stride) {
+      const node = chain[index]
+      if (node.radius > 0.48 || random() > 0.68) continue
+
+      const pointIndex = points.findIndex((point) =>
+        point.distanceToSquared(positionOf(orient(node.position))) < 1e-8,
+      )
+      if (pointIndex < 1) continue
+
+      const center = points[pointIndex]
+      const tangent = points[Math.min(pointIndex + 1, points.length - 1)]
+        .clone()
+        .sub(points[Math.max(0, pointIndex - 1)])
+        .normalize()
+      const normal = perpendicularTo(tangent).applyAxisAngle(
+        tangent,
+        random() * Math.PI * 2,
+      )
+      const length = scale * (1.1 + random() * 1)
+      const tip = center.clone().addScaledVector(normal, length)
+      tip.addScaledVector(tangent, (random() - 0.5) * length * 0.3)
+      spinePaths.push({
+        points: [
+          center,
+          center.clone().lerp(tip, 0.52).addScaledVector(tangent, length * 0.12),
+          tip,
+        ],
+        radii: [0.0045, 0.0035, 0.002],
+        color: spinyTint,
+        capped: true,
+      })
+      spineHeads.push({
+        point: tip,
+        radius: 0.0045 + random() * 0.0025,
+        color: spinyTint,
+      })
+      spineCount += 1
+    }
+  }
+
+  const nucleus = new SphereGeometry(somaRadius * 0.27, 40, 28)
+  nucleus.translate(0, 0, somaRadius * 0.43)
+  const hillock = createTubeGeometry([{
+    points: [
+      new Vector3(0.025, -somaRadius * 0.62, -0.015),
+      new Vector3(0.065, -somaRadius * 1.02, -0.005),
+      new Vector3(0.12, -somaRadius * 1.44, 0.018),
+      new Vector3(0.16, -somaRadius * 1.8, 0.025),
+    ],
+    radii: [
+      somaRadius * 0.52,
+      somaRadius * 0.43,
+      somaRadius * 0.31,
+      0.035,
+    ],
+    color: new Color('#e1cfb5'),
+    capped: false,
+  }], 10)
+  const axonStartY = -somaRadius * 1.8
+  const axonLength = scale * 85
+  const axonPoints = [
+    new Vector3(0.16, axonStartY, 0.025),
+    new Vector3(0.2, axonStartY - axonLength * 0.24, 0.04),
+    new Vector3(0.14, axonStartY - axonLength * 0.61, 0.075),
+    new Vector3(0.04, axonStartY - axonLength, 0.095),
+  ]
+  const axon = createTubeGeometry([{
+    points: axonPoints,
+    radii: [0.035, 0.025, 0.017, 0.009],
+    color: new Color('#dfc6a3'),
+    capped: true,
+  }], 8)
+  const axonHitArea = createTubeGeometry([{
+    points: axonPoints,
+    radii: [0.12, 0.105, 0.09, 0.075],
+    color: new Color('#ffffff'),
+    capped: true,
+  }], 8)
+
+  const geometry = {
+    soma: createSomaGeometry(seed, somaRadius),
+    nucleus,
+    dendrites: createTubeGeometry(dendritePaths, 12, junctions),
+    hillock,
+    axon,
+    axonHitArea,
+    spines: createTubeGeometry(spinePaths, 7, spineHeads),
+  }
+  const treeBottom = Math.min(...orientedDendrites.map((point) => point.y)) * scale
+  const treeTop = upperBound * scale
+  const axonBottom = axonStartY - axonLength
+  const frameCenter = (
+    Math.max(treeTop, somaRadius * 1.18) +
+    Math.min(treeBottom, -somaRadius * 1.18, axonBottom)
+  ) / 2
+
+  for (const item of Object.values(geometry)) {
+    item.translate(0, -frameCenter, 0)
+    item.computeBoundingBox()
+    item.computeBoundingSphere()
+  }
+
+  const measure = (items: BufferGeometry[]) => {
+    const bounds = new Box3()
+    for (const item of items) {
+      if (item.boundingBox) bounds.union(item.boundingBox)
+    }
+    const sphere = bounds.getBoundingSphere(new Sphere())
+    const size = bounds.getSize(new Vector3())
+    return {
+      center: sphere.center,
+      radius: sphere.radius,
+      width: size.x,
+      height: size.y,
+    }
+  }
+
+  const focusTargets: NeuronFocusTargets = {
+    overview: measure(Object.values(geometry)),
+    soma: measure([geometry.soma, geometry.nucleus]),
+    dendrite: measure([geometry.dendrites, geometry.spines]),
+    axon: measure([geometry.hillock, geometry.axon]),
+  }
+
+  return { ...geometry, focusTargets }
 }
 
 export function createNeuronGeometry(seed = 2026): NeuronGeometry {
-  const random = seededRandom(seed)
-  const dendritePaths: TubePath[] = []
-
-  ROOT_DIRECTIONS.forEach((coordinates, index) => {
-    const direction = new Vector3(...coordinates)
-      .add(new Vector3(random() - 0.5, random() - 0.5, random() - 0.5).multiplyScalar(0.22))
-      .normalize()
-    const origin = direction.clone().multiplyScalar(0.46)
-    const rootLength = 1.7 + random() * 1.15
-
-    growBranch(
-      origin,
-      direction,
-      rootLength,
-      0.098 + random() * 0.024,
-      index % 3 === 0 ? 4 : 3,
-      dendritePaths,
-      random,
-    )
-  })
-
-  const hillockPath: TubePath = {
-    points: [
-      new Vector3(0.36, -0.25, 0.08),
-      new Vector3(0.48, -0.37, 0.07),
-      new Vector3(0.61, -0.49, 0.045),
-      new Vector3(0.75, -0.59, 0.02),
-    ],
-    radii: [0.15, 0.135, 0.103, 0.068],
-    capped: false,
-  }
-  const axonPath = createSmoothPath(
-    [
-      new Vector3(0.71, -0.57, 0.02),
-      new Vector3(0.93, -0.98, 0.03),
-      new Vector3(1.06, -1.55, -0.02),
-      new Vector3(1.47, -2.2, -0.06),
-      new Vector3(1.83, -3.08, 0.02),
-      new Vector3(2.18, -4.15, 0.14),
-    ],
-    48,
-    0.062,
-    0.017,
-  )
-
-  const nucleus = new SphereGeometry(0.19, 32, 24)
-  nucleus.translate(-0.06, 0.025, 0.34)
-
-  return {
-    soma: createOrganicSoma(seed),
-    nucleus,
-    dendrites: createTubeGeometry(dendritePaths, 8),
-    hillock: createTubeGeometry([hillockPath], 12),
-    axon: createTubeGeometry([axonPath], 10),
-  }
+  return buildNeuronGeometry(seed)
 }
