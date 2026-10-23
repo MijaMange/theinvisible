@@ -34,6 +34,160 @@
   display: block;
 }
 
+.exhibit-navigation {
+  position: absolute;
+  z-index: 3;
+  top: clamp(112px, 16vh, 148px);
+  left: clamp(26px, 5.5vw, 72px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-width: min(310px, calc(100vw - 48px));
+}
+
+.exhibit-navigation button,
+.brain-controls button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(222, 215, 201, 0.19);
+  border-radius: 3px;
+  background: rgba(7, 9, 13, 0.78);
+  color: #ded8cd;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.exhibit-navigation button:hover,
+.exhibit-navigation button:focus-visible,
+.brain-controls button:hover,
+.brain-controls button:focus-visible {
+  border-color: rgba(224, 205, 174, 0.62);
+  background: rgba(224, 205, 174, 0.12);
+  color: #fff2df;
+  outline: none;
+}
+
+.scale-note {
+  position: absolute;
+  z-index: 1;
+  top: clamp(158px, 22vh, 194px);
+  left: clamp(26px, 5.5vw, 72px);
+  max-width: min(320px, calc(100vw - 48px));
+  margin: 0;
+  color: #aaa49a;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.brain-controls {
+  position: absolute;
+  z-index: 2;
+  bottom: clamp(18px, 4vh, 38px);
+  left: clamp(24px, 5.5vw, 72px);
+  width: min(460px, calc(100vw - 48px));
+  max-height: min(52vh, 430px);
+  overflow-y: auto;
+  padding: 14px 16px 12px;
+  border: 1px solid rgba(222, 215, 201, 0.15);
+  border-radius: 3px;
+  background: rgba(7, 9, 13, 0.82);
+  color: #e8e2d7;
+  backdrop-filter: blur(14px);
+  scrollbar-color: rgba(222, 215, 201, 0.3) transparent;
+}
+
+.brain-controls__top,
+.brain-region-info__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brain-controls__eyebrow {
+  margin: 0;
+  color: #b8a98f;
+  font-family: 'Avenir Next', 'Segoe UI', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.brain-controls .brain-controls__reset {
+  min-height: 32px;
+  background: transparent;
+}
+
+.brain-regions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 10px;
+}
+
+.brain-controls .brain-regions button {
+  min-height: 34px;
+  padding: 0 9px;
+  border-color: transparent;
+  background: rgba(222, 215, 201, 0.04);
+  color: #c4beb3;
+}
+
+.brain-controls .brain-regions button[aria-pressed='true'],
+.brain-controls .brain-hemisphere button[aria-pressed='true'] {
+  border-color: rgba(224, 205, 174, 0.38);
+  background: rgba(224, 205, 174, 0.12);
+  color: #fff2df;
+}
+
+.brain-region-info {
+  padding-top: 10px;
+  border-top: 1px solid rgba(222, 215, 201, 0.13);
+}
+
+.brain-region-info h2 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 21px;
+  font-weight: 400;
+}
+
+.brain-region-info > p,
+.brain-region-info__prompt {
+  margin: 7px 0 0;
+  color: #c4beb3;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.brain-region-info__prompt {
+  padding-top: 9px;
+  border-top: 1px solid rgba(222, 215, 201, 0.13);
+}
+
+.brain-hemisphere {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.brain-controls .brain-hemisphere button {
+  min-height: 30px;
+  padding: 0 9px;
+  background: rgba(222, 215, 201, 0.04);
+}
+
+.brain-controls__note {
+  margin: 10px 0 0;
+  color: #99958e;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
 .model-status {
   position: absolute;
   z-index: 1;
@@ -49,6 +203,152 @@
   font-size: 11px;
   line-height: 1.5;
   backdrop-filter: blur(12px);
+}
+
+.synapse-explore {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid rgba(226, 190, 245, 0.46);
+  border-radius: 3px;
+  background: rgba(17, 12, 24, 0.9);
+  color: #f1dfff;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(3, 5, 10, 0.5);
+}
+
+.synapse-explore:hover,
+.synapse-explore:focus-visible {
+  border-color: rgba(226, 190, 245, 0.9);
+  background: rgba(68, 42, 90, 0.92);
+  outline: none;
+}
+
+.synapse-heading {
+  position: absolute;
+  z-index: 2;
+  top: clamp(28px, 5.5vh, 58px);
+  right: clamp(24px, 5.5vw, 72px);
+  width: min(350px, calc(100vw - 48px));
+  padding: 15px 17px;
+  border: 1px solid rgba(222, 215, 201, 0.14);
+  border-radius: 3px;
+  background: rgba(7, 9, 13, 0.78);
+  color: #e8e2d7;
+  backdrop-filter: blur(12px);
+}
+
+.synapse-heading h2 {
+  margin: 8px 0 7px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.22;
+}
+
+.synapse-heading__stage,
+.synapse-heading__note {
+  margin: 0;
+  color: #c4beb3;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.synapse-heading__stage {
+  color: #e4d6c2;
+}
+
+.synapse-heading__note {
+  margin-top: 8px;
+  color: #a9a49b;
+  font-size: 11px;
+}
+
+.synapse-controls {
+  position: absolute;
+  z-index: 2;
+  right: clamp(24px, 5.5vw, 72px);
+  bottom: clamp(26px, 4.5vh, 44px);
+  width: min(480px, calc(100vw - 48px));
+  padding: 9px 12px 11px;
+  border: 1px solid rgba(222, 215, 201, 0.14);
+  border-radius: 3px;
+  background: rgba(7, 9, 13, 0.82);
+  backdrop-filter: blur(12px);
+}
+
+.synapse-controls button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(222, 215, 201, 0.16);
+  border-radius: 2px;
+  background: rgba(222, 215, 201, 0.04);
+  color: #ded8cd;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.synapse-controls button:hover:not(:disabled),
+.synapse-controls button:focus-visible {
+  border-color: rgba(224, 205, 174, 0.55);
+  background: rgba(224, 205, 174, 0.11);
+  color: #fff2df;
+  outline: none;
+}
+
+.synapse-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.synapse-controls__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 3px !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+.synapse-controls__progress {
+  height: 2px;
+  margin: 5px 0 9px;
+  overflow: hidden;
+  background: rgba(222, 215, 201, 0.16);
+}
+
+.synapse-controls__progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #9b5de5, #68bce8, #64e5d5);
+  transition: width 120ms linear;
+}
+
+.synapse-controls__actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.synapse-controls__slow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  margin-left: auto;
+  color: #c4beb3;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.synapse-controls__slow input {
+  accent-color: #b692df;
 }
 
 .editorial {
@@ -250,6 +550,55 @@
     font-size: 16px;
   }
 
+  .exhibit-navigation {
+    top: 115px;
+    right: 16px;
+    left: 16px;
+    max-width: none;
+  }
+
+  .exhibit-navigation button {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .scale-note {
+    top: 158px;
+    right: 16px;
+    left: 16px;
+    max-width: none;
+    font-size: 10px;
+  }
+
+  .brain-controls {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    width: auto;
+    max-height: min(51vh, 400px);
+    padding: 10px 11px 9px;
+  }
+
+  .brain-regions {
+    gap: 4px;
+    margin: 6px 0 8px;
+  }
+
+  .brain-controls .brain-regions button {
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 9px;
+  }
+
+  .brain-region-info h2 {
+    font-size: 19px;
+  }
+
+  .brain-region-info > p,
+  .brain-region-info__prompt {
+    font-size: 11px;
+  }
+
   .anatomy-navigation {
     right: 16px;
     bottom: 16px;
@@ -275,6 +624,44 @@
 
   .structure-panel h2 {
     font-size: 22px;
+  }
+
+  .synapse-heading {
+    top: 112px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    padding: 12px 14px;
+  }
+
+  .synapse-heading h2 {
+    font-size: 18px;
+  }
+
+  .synapse-heading__note {
+    font-size: 10px;
+  }
+
+  .synapse-controls {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    width: auto;
+    padding: 7px 9px 9px;
+  }
+
+  .synapse-controls__actions {
+    gap: 5px;
+  }
+
+  .synapse-controls button {
+    min-height: 40px;
+    padding: 0 9px;
+  }
+
+  .synapse-controls__slow {
+    gap: 5px;
+    font-size: 9px;
   }
 
   .structure-panel__summary,
