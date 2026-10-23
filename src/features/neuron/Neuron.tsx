@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
-import { useGLTF } from '@react-three/drei'
+import { Html, useGLTF } from '@react-three/drei'
 import {
   Box3,
   Color,
@@ -28,6 +28,7 @@ type NeuronProps = {
   onHover: (structure: NeuronStructure | null) => void
   onFocusTargets: (targets: NeuronFocusTargets) => void
   onLoaded: () => void
+  onExploreSynapse: () => void
 }
 
 const MODEL_SCALE = 0.52
@@ -171,6 +172,7 @@ export function Neuron({
   onHover,
   onFocusTargets,
   onLoaded,
+  onExploreSynapse,
 }: NeuronProps) {
   const group = useRef<Group>(null)
   const elapsed = useRef(0)
@@ -241,17 +243,40 @@ export function Neuron({
   }
 
   return (
-    <group ref={group} dispose={null}>
-      <group
-        position={model.center.clone().multiplyScalar(-MODEL_SCALE)}
-        scale={MODEL_SCALE}
-        onClick={handleClick}
-        onPointerOver={handlePointerOver}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
-      >
-        <primitive object={model.scene} />
+    <>
+      <group ref={group} dispose={null}>
+        <group
+          position={model.center.clone().multiplyScalar(-MODEL_SCALE)}
+          scale={MODEL_SCALE}
+          onClick={handleClick}
+          onPointerOver={handlePointerOver}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
+        >
+          <primitive object={model.scene} />
+        </group>
       </group>
-    </group>
+      <Html
+        position={[
+          (3.55 - model.center.x) * MODEL_SCALE,
+          (-9.45 - model.center.y) * MODEL_SCALE,
+          (0.25 - model.center.z) * MODEL_SCALE,
+        ]}
+        center
+        zIndexRange={[3, 3]}
+      >
+        <button
+          className="synapse-explore"
+          type="button"
+          aria-label="Explore synapse"
+          onClick={(event) => {
+            event.stopPropagation()
+            onExploreSynapse()
+          }}
+        >
+          Explore synapse
+        </button>
+      </Html>
+    </>
   )
 }
