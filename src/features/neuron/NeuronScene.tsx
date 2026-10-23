@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { Component, Suspense, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   OrbitControls,
   PerspectiveCamera as PerspectiveCameraComponent,
@@ -17,9 +18,39 @@ type NeuronSceneProps = {
   orientation: { current: Orientation }
   prefersReducedMotion: boolean
   selected: NeuronStructure | null
-  hovered: NeuronStructure | null
   onSelect: (structure: NeuronStructure) => void
   onHover: (structure: NeuronStructure | null) => void
+  onModelLoaded: () => void
+  onModelError: (error: Error) => void
+}
+
+type ModelErrorBoundaryProps = {
+  children: ReactNode
+  onError: (error: Error) => void
+}
+
+type ModelErrorBoundaryState = {
+  hasError: boolean
+}
+
+class ModelErrorBoundary extends Component<
+  ModelErrorBoundaryProps,
+  ModelErrorBoundaryState
+> {
+  state: ModelErrorBoundaryState = { hasError: false }
+
+  static getDerivedStateFromError(): ModelErrorBoundaryState {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Unable to load the neuron model.', error)
+    this.props.onError(error)
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children
+  }
 }
 
 function CameraRig({
@@ -36,7 +67,7 @@ function CameraRig({
   const orbitActive = useRef(false)
   const pointer = useRef({ x: 0, y: 0 })
   const destination = useRef({
-    camera: new Vector3(0, 0, 18),
+    camera: new Vector3(0, 0, 20),
     target: new Vector3(),
     pointerTarget: new Vector3(),
     transitioning: false,
@@ -75,8 +106,8 @@ function CameraRig({
     const aspect = Math.max(0.35, size.width / size.height)
     const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * aspect)
     const distance = Math.max(
-      focus.radius / Math.sin(verticalHalfFov * 0.67),
-      focus.radius / Math.sin(horizontalHalfFov * 0.67),
+      focus.height / (2 * Math.tan(verticalHalfFov) * 0.82),
+      focus.width / (2 * Math.tan(horizontalHalfFov) * 0.82),
       1.6,
     )
     const target = focus.center.clone()
@@ -145,14 +176,16 @@ function CameraRig({
         fov={38}
         near={0.1}
         far={80}
-        position={[0, 0, 18]}
+        position={[0, 0, 20]}
       />
       <OrbitControls
         ref={controls}
         enableDamping={!prefersReducedMotion}
         dampingFactor={0.045}
         enablePan={false}
-        enableZoom={false}
+        enableZoom
+        minDistance={2.5}
+        maxDistance={55}
         rotateSpeed={0.24}
         minAzimuthAngle={-0.4}
         maxAzimuthAngle={0.4}
@@ -169,9 +202,10 @@ export function NeuronScene({
   orientation,
   prefersReducedMotion,
   selected,
-  hovered,
   onSelect,
   onHover,
+  onModelLoaded,
+  onModelError,
 }: NeuronSceneProps) {
   const [focusTargets, setFocusTargets] = useState<NeuronFocusTargets | null>(null)
 
@@ -183,26 +217,29 @@ export function NeuronScene({
         prefersReducedMotion={prefersReducedMotion}
         closeUp={selected !== null}
       />
-      <ambientLight intensity={0.32} color="#b8c0ca" />
-      <directionalLight position={[-4, 6, 7]} intensity={1.55} color="#f0e6d5" />
-      <pointLight position={[3, 1, -4]} intensity={7} distance={21} color="#b99b77" />
-      <pointLight position={[-4, -2, -3]} intensity={5.5} distance={19} color="#8798aa" />
-      <pointLight position={[0, 5, 2]} intensity={2.8} distance={15} color="#fff2df" />
+      <ambientLight intensity={0.35} color="#c5cbd2" />
+      <directionalLight position={[-4, 6, 7]} intensity={1.2} color="#f0e6d5" />
+      <pointLight position={[3, 1, -4]} intensity={2} distance={21} color="#b99b77" />
+      <pointLight position={[-4, -2, -3]} intensity={1.5} distance={19} color="#8798aa" />
+      <pointLight position={[0, 5, 2]} intensity={0.9} distance={15} color="#fff2df" />
 
       <CameraRig
         focusTargets={focusTargets}
         selected={selected}
         prefersReducedMotion={prefersReducedMotion}
       />
-      <Neuron
-        orientation={orientation}
-        prefersReducedMotion={prefersReducedMotion}
-        selected={selected}
-        hovered={hovered}
-        onSelect={onSelect}
-        onHover={onHover}
-        onFocusTargets={setFocusTargets}
-      />
+      <ModelErrorBoundary onError={onModelError}>
+        <Suspense fallback={null}>
+          <Neuron
+            orientation={orientation}
+            prefersReducedMotion={prefersReducedMotion}
+            onSelect={onSelect}
+            onHover={onHover}
+            onFocusTargets={setFocusTargets}
+            onLoaded={onModelLoaded}
+          />
+        </Suspense>
+      </ModelErrorBoundary>
     </>
   )
 }

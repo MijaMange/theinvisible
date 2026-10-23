@@ -1,11 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useProgress } from '@react-three/drei'
 import { AnatomicalNavigation } from './features/neuron/components/AnatomicalNavigation'
 import { StructureInfoPanel } from './features/neuron/components/StructureInfoPanel'
 import { useNeuronSelection } from './features/neuron/hooks/useNeuronSelection'
 import { NeuronScene } from './features/neuron/NeuronScene'
 import './App.css'
+
+type ModelStatusProps = {
+  state: 'loading' | 'loaded' | 'error'
+}
+
+function ModelStatus({ state }: ModelStatusProps) {
+  const { progress } = useProgress()
+  if (state === 'loaded') return null
+
+  const isError = state === 'error'
+  const message = isError
+    ? 'Neuronmodellen kunde inte laddas. Kontrollera anslutningen och ladda om sidan.'
+    : progress > 0
+      ? `Laddar neuronmodellen ${Math.round(progress)} %`
+      : 'Laddar neuronmodellen...'
+
+  return (
+    <p className="model-status" role={isError ? 'alert' : 'status'}>
+      {message}
+    </p>
+  )
+}
 
 function usePrefersReducedMotion() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
@@ -27,7 +50,11 @@ function App() {
   const prefersReducedMotion = usePrefersReducedMotion()
   const orientation = useRef({ x: 0, y: 0 })
   const navigationRef = useRef<HTMLButtonElement>(null)
+  const [modelStatus, setModelStatus] = useState<ModelStatusProps['state']>('loading')
   const { state, select, hover, close } = useNeuronSelection()
+
+  const handleModelLoaded = useCallback(() => setModelStatus('loaded'), [])
+  const handleModelError = useCallback(() => setModelStatus('error'), [])
 
   const handleClose = useCallback(() => {
     close()
@@ -88,7 +115,7 @@ function App() {
         <Canvas
           className="scene-canvas"
           dpr={[1, 1.75]}
-          camera={{ position: [0, 0, 13], fov: 38, near: 0.1, far: 80 }}
+          camera={{ position: [0, 0, 20], fov: 38, near: 0.1, far: 80 }}
           gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
           aria-hidden="true"
         >
@@ -96,11 +123,13 @@ function App() {
             orientation={orientation}
             prefersReducedMotion={prefersReducedMotion}
             selected={state.selected}
-            hovered={state.hovered}
             onSelect={select}
             onHover={hover}
+            onModelLoaded={handleModelLoaded}
+            onModelError={handleModelError}
           />
         </Canvas>
+        <ModelStatus state={modelStatus} />
         <p className="visually-hidden" id="scene-description">
           A pearl-toned cortical pyramidal neuron with an irregular cell body, branching
           dendrites, and a single tapered axon. Use the arrow keys to adjust its

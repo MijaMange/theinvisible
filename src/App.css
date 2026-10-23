@@ -34,6 +34,23 @@
   display: block;
 }
 
+.model-status {
+  position: absolute;
+  z-index: 1;
+  top: clamp(28px, 5.5vh, 58px);
+  right: clamp(24px, 5.5vw, 72px);
+  max-width: min(320px, calc(100vw - 48px));
+  margin: 0;
+  padding: 10px 13px;
+  border: 1px solid rgba(222, 215, 201, 0.14);
+  border-radius: 3px;
+  background: rgba(7, 9, 13, 0.76);
+  color: #d8d0c3;
+  font-size: 11px;
+  line-height: 1.5;
+  backdrop-filter: blur(12px);
+}
+
 .editorial {
   position: absolute;
   z-index: 1;

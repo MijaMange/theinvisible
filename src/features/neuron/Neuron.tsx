@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
-import { Color, Group, MathUtils, MeshPhysicalMaterial } from 'three'
-import { createNeuronGeometry } from './geometry'
+import { useGLTF } from '@react-three/drei'
+import {
+  Box3,
+  Color,
+  Group,
+  MathUtils,
+  Mesh,
+  MeshPhysicalMaterial,
+  Object3D,
+  Vector3,
+} from 'three'
+import type { Material } from 'three'
 import type {
+  NeuronFocus,
   NeuronFocusTargets,
   NeuronStructure,
 } from './types'
@@ -13,174 +24,167 @@ type Orientation = { x: number; y: number }
 type NeuronProps = {
   orientation: { current: Orientation }
   prefersReducedMotion: boolean
-  selected: NeuronStructure | null
-  hovered: NeuronStructure | null
   onSelect: (structure: NeuronStructure) => void
   onHover: (structure: NeuronStructure | null) => void
   onFocusTargets: (targets: NeuronFocusTargets) => void
+  onLoaded: () => void
 }
 
-function createTissueMaterial(vertexColors = true, opacity = 1) {
-  const material = new MeshPhysicalMaterial({
-    color: '#ffffff',
-    emissive: '#000000',
-    emissiveIntensity: 0,
-    vertexColors,
-    roughness: 0.67,
-    metalness: 0,
-    transmission: 0.012,
-    thickness: 0.24,
-    attenuationColor: '#e9d9c4',
-    attenuationDistance: 1.8,
-    ior: 1.24,
-    sheen: 0.1,
-    sheenColor: '#f4e6d2',
-    sheenRoughness: 0.92,
-    clearcoat: 0,
-    transparent: opacity < 1,
-    opacity,
-  })
+const MODEL_SCALE = 0.52
+const MEMBRANE_GRADIENT = [
+  new Color('#9b5de5'),
+  new Color('#456ee8'),
+  new Color('#64e5d5'),
+]
 
-  material.onBeforeCompile = (shader) => {
+function createMembraneMaterial(material: Material) {
+  const gradientMaterial = material.clone()
+  const gradient = MEMBRANE_GRADIENT.map((color) =>
+    `vec3(${color.r.toFixed(6)}, ${color.g.toFixed(6)}, ${color.b.toFixed(6)})`,
+  )
+
+  gradientMaterial.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vTissuePosition;',
+        '#include <common>\nvarying vec3 vNeuronPosition;',
       )
       .replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvTissuePosition = position;',
+        '#include <begin_vertex>\nvNeuronPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;',
       )
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vTissuePosition;',
+        '#include <common>\nvarying vec3 vNeuronPosition;',
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        float tissueCloud = sin(vTissuePosition.x * 2.8 + sin(vTissuePosition.y * 3.4)) *
-          cos(vTissuePosition.z * 3.1 - vTissuePosition.x * 1.7);
-        float membraneGrain = sin(vTissuePosition.x * 47.0 + sin(vTissuePosition.y * 29.0)) *
-          cos(vTissuePosition.z * 41.0 + vTissuePosition.y * 23.0);
-        diffuseColor.rgb *= vec3(
-          0.994 + tissueCloud * 0.012 + membraneGrain * 0.003,
-          0.993 + tissueCloud * 0.009 + membraneGrain * 0.0025,
-          0.99 + tissueCloud * 0.006 + membraneGrain * 0.002
-        );`,
-      )
-      .replace(
-        '#include <roughnessmap_fragment>',
-        `#include <roughnessmap_fragment>
-        roughnessFactor = clamp(
-          roughnessFactor + sin(vTissuePosition.x * 5.0 + vTissuePosition.z * 3.0) * 0.018,
-          0.48,
-          0.9
-        );`,
+        float neuronRadius = length(vNeuronPosition);
+        float violetToBlue = smoothstep(0.75, 3.2, neuronRadius);
+        float blueToTurquoise = smoothstep(1.9, 4.7, neuronRadius);
+        vec3 membraneGradient = mix(${gradient[0]}, ${gradient[1]}, violetToBlue);
+        membraneGradient = mix(membraneGradient, ${gradient[2]}, blueToTurquoise);
+        diffuseColor.rgb *= membraneGradient;`,
       )
   }
-  material.customProgramCacheKey = () => 'the-invisible-biological-tissue-v2'
-  return material
+  gradientMaterial.customProgramCacheKey = () => 'nervcell-membrane-gradient-v1'
+  return gradientMaterial
 }
 
-function updateHighlight(
-  material: MeshPhysicalMaterial,
-  structure: NeuronStructure,
-  selected: NeuronStructure | null,
-  hovered: NeuronStructure | null,
-  colors: {
-    neutral: Color
-    hover: Color
-    selected: Color
-    hoverGlow: Color
-    selectedGlow: Color
-    noGlow: Color
-  },
-  delta: number,
-) {
-  const isSelected = selected === structure
-  const isHovered = hovered === structure
-  const colorEase = 1 - Math.exp(-delta * 5)
+function createMyelinMaterial(material: Material) {
+  const myelinMaterial = material.clone()
+  if (myelinMaterial instanceof MeshPhysicalMaterial) {
+    myelinMaterial.color.set('#f1e6d2')
+    myelinMaterial.sheen = Math.max(myelinMaterial.sheen, 0.2)
+    myelinMaterial.sheenColor.set('#fff3df')
+    myelinMaterial.sheenRoughness = 0.38
+    myelinMaterial.clearcoat = Math.max(myelinMaterial.clearcoat, 0.4)
+  }
+  return myelinMaterial
+}
 
-  material.color.lerp(
-    isSelected ? colors.selected : isHovered ? colors.hover : colors.neutral,
-    colorEase,
-  )
-  material.emissive.lerp(
-    isSelected
-      ? colors.selectedGlow
-      : isHovered
-        ? colors.hoverGlow
-        : colors.noGlow,
-    colorEase,
-  )
-  material.emissiveIntensity = MathUtils.damp(
-    material.emissiveIntensity,
-    isSelected ? 0.16 : isHovered ? 0.07 : 0,
-    5,
-    delta,
-  )
+function prepareModelMaterials(scene: Object3D) {
+  scene.traverse((object) => {
+    if (!(object instanceof Mesh)) return
+    const component = object.userData.component
+    if (component !== 'soma' && component !== 'soma_junctions' &&
+      component !== 'dendrites' && component !== 'dendritic_spines' &&
+      component !== 'axon') {
+      if (component !== 'myelin') return
+      object.material = Array.isArray(object.material)
+        ? object.material.map(createMyelinMaterial)
+        : createMyelinMaterial(object.material)
+      return
+    }
+
+    object.material = Array.isArray(object.material)
+      ? object.material.map(createMembraneMaterial)
+      : createMembraneMaterial(object.material)
+  })
+}
+
+function structureForComponent(component: unknown): NeuronStructure | null {
+  switch (component) {
+    case 'soma':
+    case 'nucleus':
+    case 'soma_junctions':
+      return 'soma'
+    case 'dendrites':
+    case 'dendritic_spines':
+      return 'dendrite'
+    case 'axon':
+    case 'axon_terminals':
+    case 'myelin':
+      return 'axon'
+    default:
+      return null
+  }
+}
+
+function createFocusTargets(scene: Object3D) {
+  const bounds = {
+    overview: new Box3(),
+    soma: new Box3(),
+    dendrite: new Box3(),
+    axon: new Box3(),
+  }
+  scene.updateMatrixWorld(true)
+  const overview = new Box3().setFromObject(scene)
+  bounds.overview.copy(overview)
+
+  scene.traverse((object) => {
+    if (!(object instanceof Mesh)) return
+    const structure = structureForComponent(object.userData.component)
+    if (!structure) return
+    bounds[structure].union(new Box3().setFromObject(object))
+  })
+
+  const center = overview.getCenter(new Vector3())
+  const createFocus = (objectBounds: Box3): NeuronFocus => {
+    const normalizedBounds = objectBounds.clone()
+    normalizedBounds.min.sub(center).multiplyScalar(MODEL_SCALE)
+    normalizedBounds.max.sub(center).multiplyScalar(MODEL_SCALE)
+    const dimensions = normalizedBounds.getSize(new Vector3())
+    return {
+      center: normalizedBounds.getCenter(new Vector3()),
+      radius: dimensions.length() / 2,
+      width: dimensions.x,
+      height: dimensions.y,
+    }
+  }
+  const focusTargets: NeuronFocusTargets = {
+    overview: createFocus(bounds.overview),
+    soma: createFocus(bounds.soma),
+    dendrite: createFocus(bounds.dendrite),
+    axon: createFocus(bounds.axon),
+  }
+
+  return { center, focusTargets }
 }
 
 export function Neuron({
   orientation,
   prefersReducedMotion,
-  selected,
-  hovered,
   onSelect,
   onHover,
   onFocusTargets,
+  onLoaded,
 }: NeuronProps) {
   const group = useRef<Group>(null)
   const elapsed = useRef(0)
-  const geometry = useMemo(() => createNeuronGeometry(2026), [])
-  const materials = useMemo(
-    () => ({
-      soma: createTissueMaterial(),
-      dendrite: createTissueMaterial(),
-      axon: createTissueMaterial(),
-      nucleus: createTissueMaterial(false, 0.56),
-      hitArea: new MeshPhysicalMaterial({
-        color: '#ffffff',
-        transparent: true,
-        opacity: 0,
-        colorWrite: false,
-        depthWrite: false,
-      }),
-    }),
-    [],
-  )
-  const highlightColors = useMemo(
-    () => ({
-      neutral: new Color('#ffffff'),
-      hover: new Color('#fff1dc'),
-      selected: new Color('#edd4ad'),
-      noGlow: new Color('#000000'),
-      hoverGlow: new Color('#291d10'),
-      selectedGlow: new Color('#49351e'),
-    }),
-    [],
-  )
+  const { scene } = useGLTF('/models/nervcell.glb')
+  const model = useMemo(() => {
+    const clone = scene.clone(true)
+    prepareModelMaterials(clone)
+    return { scene: clone, ...createFocusTargets(clone) }
+  }, [scene])
 
   useEffect(() => {
-    onFocusTargets(geometry.focusTargets)
-  }, [geometry.focusTargets, onFocusTargets])
-
-  useEffect(() => {
-    return () => [
-      geometry.soma,
-      geometry.nucleus,
-      geometry.dendrites,
-      geometry.hillock,
-      geometry.axon,
-      geometry.axonHitArea,
-      geometry.spines,
-    ].forEach((item) => item.dispose())
-  }, [geometry])
-
-  useEffect(() => {
-    return () => Object.values(materials).forEach((material) => material.dispose())
-  }, [materials])
+    onFocusTargets(model.focusTargets)
+    onLoaded()
+  }, [model.focusTargets, onFocusTargets, onLoaded])
 
   useFrame((_, delta) => {
     const currentGroup = group.current
@@ -191,7 +195,6 @@ export function Neuron({
       ? 1
       : MathUtils.clamp(elapsed.current / 2.4, 0, 1)
     const reveal = 1 - Math.pow(1 - revealProgress, 3)
-
     const breathing = prefersReducedMotion ? 0 : Math.sin(elapsed.current * 0.52) * 0.003
     currentGroup.scale.setScalar(0.91 + reveal * (0.09 + breathing))
     if (prefersReducedMotion) {
@@ -211,24 +214,21 @@ export function Neuron({
         delta,
       )
     }
-
-    updateHighlight(materials.soma, 'soma', selected, hovered, highlightColors, delta)
-    updateHighlight(materials.nucleus, 'soma', selected, hovered, highlightColors, delta)
-    updateHighlight(materials.dendrite, 'dendrite', selected, hovered, highlightColors, delta)
-    updateHighlight(materials.axon, 'axon', selected, hovered, highlightColors, delta)
   })
 
-  const handleClick = (structure: NeuronStructure) => (event: ThreeEvent<MouseEvent>) => {
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    const structure = structureForComponent(event.object.userData.component)
+    if (!structure) return
     event.stopPropagation()
     onSelect(structure)
   }
-  const handlePointerOver = (structure: NeuronStructure) =>
-    (event: ThreeEvent<PointerEvent>) => {
-      event.stopPropagation()
-      onHover(structure)
-    }
-  const handlePointerLeave = (event: ThreeEvent<PointerEvent>) => {
+  const handlePointerOver = (event: ThreeEvent<PointerEvent>) => {
+    const structure = structureForComponent(event.object.userData.component)
+    if (!structure) return
     event.stopPropagation()
+    onHover(structure)
+  }
+  const handlePointerLeave = (event: ThreeEvent<PointerEvent>) => {
     onHover(null)
     if (event.nativeEvent.target instanceof HTMLElement) {
       event.nativeEvent.target.style.cursor = ''
@@ -243,32 +243,14 @@ export function Neuron({
   return (
     <group ref={group} dispose={null}>
       <group
-        onClick={handleClick('soma')}
-        onPointerOver={handlePointerOver('soma')}
+        position={model.center.clone().multiplyScalar(-MODEL_SCALE)}
+        scale={MODEL_SCALE}
+        onClick={handleClick}
+        onPointerOver={handlePointerOver}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        <mesh geometry={geometry.soma} material={materials.soma} />
-        <mesh geometry={geometry.nucleus} material={materials.nucleus} />
-      </group>
-      <group
-        onClick={handleClick('dendrite')}
-        onPointerOver={handlePointerOver('dendrite')}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
-      >
-        <mesh geometry={geometry.dendrites} material={materials.dendrite} />
-        <mesh geometry={geometry.spines} material={materials.dendrite} />
-      </group>
-      <group
-        onClick={handleClick('axon')}
-        onPointerOver={handlePointerOver('axon')}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
-      >
-        <mesh geometry={geometry.axonHitArea} material={materials.hitArea} />
-        <mesh geometry={geometry.hillock} material={materials.axon} />
-        <mesh geometry={geometry.axon} material={materials.axon} />
+        <primitive object={model.scene} />
       </group>
     </group>
   )

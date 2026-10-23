@@ -5,6 +5,8 @@ export type NeuronStructure = 'soma' | 'dendrite' | 'axon'
 export type NeuronFocus = {
   center: Vector3
   radius: number
+  width: number
+  height: number
 }
 
 export type NeuronFocusTargets = Record<NeuronStructure | 'overview', NeuronFocus>

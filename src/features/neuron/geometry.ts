@@ -461,7 +461,13 @@ function buildNeuronGeometry(seed: number): NeuronGeometry {
       if (item.boundingBox) bounds.union(item.boundingBox)
     }
     const sphere = bounds.getBoundingSphere(new Sphere())
-    return { center: sphere.center, radius: sphere.radius }
+    const size = bounds.getSize(new Vector3())
+    return {
+      center: sphere.center,
+      radius: sphere.radius,
+      width: size.x,
+      height: size.y,
+    }
   }
 
   const focusTargets: NeuronFocusTargets = {
