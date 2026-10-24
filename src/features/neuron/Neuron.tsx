@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
-import { Html, useGLTF } from '@react-three/drei'
+import { useGLTF } from '@react-three/drei'
 import {
   Box3,
   Color,
@@ -10,6 +10,7 @@ import {
   Mesh,
   MeshPhysicalMaterial,
   Object3D,
+  Sphere,
   Vector3,
 } from 'three'
 import type { Material } from 'three'
@@ -131,6 +132,7 @@ function createFocusTargets(scene: Object3D) {
     dendrite: new Box3(),
     axon: new Box3(),
   }
+  const terminalBounds = new Box3()
   scene.updateMatrixWorld(true)
   const overview = new Box3().setFromObject(scene)
   bounds.overview.copy(overview)
@@ -138,9 +140,17 @@ function createFocusTargets(scene: Object3D) {
   scene.traverse((object) => {
     if (!(object instanceof Mesh)) return
     const structure = structureForComponent(object.userData.component)
-    if (!structure) return
-    bounds[structure].union(new Box3().setFromObject(object))
+    const objectBounds = new Box3().setFromObject(object)
+    if (structure) bounds[structure].union(objectBounds)
+    if (object.userData.component === 'axon_terminals') {
+      terminalBounds.union(objectBounds)
+    }
   })
+  if (terminalBounds.isEmpty()) {
+    throw new Error('The neuron model does not contain axon terminals.')
+  }
+  const terminalCenter = terminalBounds.getCenter(new Vector3())
+  const terminalSphere = terminalBounds.getBoundingSphere(new Sphere())
 
   const center = overview.getCenter(new Vector3())
   const createFocus = (objectBounds: Box3): NeuronFocus => {
@@ -162,7 +172,12 @@ function createFocusTargets(scene: Object3D) {
     axon: createFocus(bounds.axon),
   }
 
-  return { center, focusTargets }
+  return {
+    center,
+    focusTargets,
+    terminalCenter,
+    terminalRadius: Math.max(terminalSphere.radius * 1.08, 0.4),
+  }
 }
 
 export function Neuron({
@@ -219,7 +234,14 @@ export function Neuron({
   })
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
-    const structure = structureForComponent(event.object.userData.component)
+    if (event.delta > 5) return
+    const component = event.object.userData.component
+    if (component === 'axon_terminals') {
+      event.stopPropagation()
+      onExploreSynapse()
+      return
+    }
+    const structure = structureForComponent(component)
     if (!structure) return
     event.stopPropagation()
     onSelect(structure)
@@ -253,30 +275,16 @@ export function Neuron({
           onPointerEnter={handlePointerEnter}
           onPointerLeave={handlePointerLeave}
         >
+          <mesh
+            position={model.terminalCenter}
+            userData={{ component: 'axon_terminals' }}
+          >
+            <sphereGeometry args={[model.terminalRadius, 16, 12]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
           <primitive object={model.scene} />
         </group>
       </group>
-      <Html
-        position={[
-          (3.55 - model.center.x) * MODEL_SCALE,
-          (-9.45 - model.center.y) * MODEL_SCALE,
-          (0.25 - model.center.z) * MODEL_SCALE,
-        ]}
-        center
-        zIndexRange={[3, 3]}
-      >
-        <button
-          className="synapse-explore"
-          type="button"
-          aria-label="Explore synapse"
-          onClick={(event) => {
-            event.stopPropagation()
-            onExploreSynapse()
-          }}
-        >
-          Explore synapse
-        </button>
-      </Html>
     </>
   )
 }
