@@ -5,7 +5,6 @@ type SynapseControlsProps = {
   elapsed: number
   modelLoaded: boolean
   slowMotion: boolean
-  onBack: () => void
   onSend: () => void
   onPauseResume: () => void
   onReset: () => void
@@ -30,7 +29,6 @@ export function SynapseControls({
   elapsed,
   modelLoaded,
   slowMotion,
-  onBack,
   onSend,
   onPauseResume,
   onReset,
@@ -53,14 +51,6 @@ export function SynapseControls({
       </header>
 
       <section className="synapse-controls" aria-label="Signal animation controls">
-        <button
-          className="synapse-controls__back"
-          type="button"
-          onClick={onBack}
-        >
-          <span aria-hidden="true">←</span>
-          Back to neuron
-        </button>
         <div
           className="synapse-controls__progress"
           role="progressbar"
@@ -73,28 +63,61 @@ export function SynapseControls({
         </div>
         <div className="synapse-controls__actions">
           {runState === 'idle' || runState === 'complete' ? (
-            <button type="button" onClick={onSend} disabled={!modelLoaded}>
-              Send signal
+            <button
+              className="synapse-controls__icon"
+              type="button"
+              onClick={onSend}
+              disabled={!modelLoaded}
+              aria-label={runState === 'complete' ? 'Replay signal' : 'Play signal'}
+              title={runState === 'complete' ? 'Replay signal' : 'Play signal'}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 2.5 13 8l-9 5.5z" />
+              </svg>
             </button>
           ) : (
-            <button type="button" onClick={onPauseResume} disabled={!modelLoaded}>
-              {runState === 'paused' ? 'Resume' : 'Pause'}
+            <button
+              className="synapse-controls__icon"
+              type="button"
+              onClick={onPauseResume}
+              disabled={!modelLoaded}
+              aria-label={runState === 'paused' ? 'Resume signal' : 'Pause signal'}
+              title={runState === 'paused' ? 'Resume signal' : 'Pause signal'}
+            >
+              {runState === 'paused' ? (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 2.5 13 8l-9 5.5z" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 3h3v10H4zm5 0h3v10H9z" />
+                </svg>
+              )}
             </button>
           )}
           <button
+            className="synapse-controls__icon"
             type="button"
             onClick={onReset}
             disabled={!modelLoaded || (runState === 'idle' && elapsed === 0)}
+            aria-label="Stop signal"
+            title="Stop signal"
           >
-            Reset
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3.5 3.5h9v9h-9z" />
+            </svg>
           </button>
-          <label className="synapse-controls__slow">
+          <label
+            className="synapse-controls__slow"
+            title={slowMotion ? 'Slow motion on' : 'Slow motion off'}
+          >
             <input
               type="checkbox"
               checked={slowMotion}
               onChange={onSlowMotionChange}
+              aria-label="Slow motion"
             />
-            <span>Slow motion</span>
+            <span aria-hidden="true">½×</span>
           </label>
         </div>
       </section>

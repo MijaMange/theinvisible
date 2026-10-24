@@ -23,7 +23,7 @@ function seededRandom(seed: number) {
 function createPointGeometry(
   count: number,
   seed: number,
-  bounds: { x: number; y: number; near: number; far: number },
+  bounds: { halfFov: number; aspect: number; near: number; far: number },
 ) {
   const random = seededRandom(seed)
   const positions = new Float32Array(count * 3)
@@ -34,9 +34,12 @@ function createPointGeometry(
   )
 
   for (let index = 0; index < count; index += 1) {
-    positions[index * 3] = (random() * 2 - 1) * bounds.x
-    positions[index * 3 + 1] = (random() * 2 - 1) * bounds.y
-    positions[index * 3 + 2] = -(bounds.near + random() * (bounds.far - bounds.near))
+    const depth = bounds.near + random() * (bounds.far - bounds.near)
+    const halfHeight = depth * bounds.halfFov * 1.35
+    const halfWidth = halfHeight * bounds.aspect
+    positions[index * 3] = (random() * 2 - 1) * halfWidth
+    positions[index * 3 + 1] = (random() * 2 - 1) * halfHeight
+    positions[index * 3 + 2] = -depth
     const color = palette[Math.floor(random() * palette.length)]
     const brightness = 0.55 + random() * 0.4
 
@@ -100,15 +103,18 @@ export function CosmicEnvironment({
 }: CosmicEnvironmentProps) {
   const farLayer = useRef<Group>(null)
   const nearLayer = useRef<Group>(null)
+  const elapsed = useRef(0)
   const { camera, size, gl } = useThree()
   const pointScale = size.height * gl.getPixelRatio() * camera.projectionMatrix.elements[5] * 0.5
+  const halfFov = 1 / camera.projectionMatrix.elements[5]
+  const aspect = size.width / size.height
   const starGeometry = useMemo(
-    () => createPointGeometry(2600, 8191, { x: 37, y: 25, near: 24, far: 62 }),
-    [],
+    () => createPointGeometry(1900, 8191, { halfFov, aspect, near: 24, far: 62 }),
+    [aspect, halfFov],
   )
   const dustGeometry = useMemo(
-    () => createPointGeometry(420, 3127, { x: 27, y: 18, near: 18, far: 42 }),
-    [],
+    () => createPointGeometry(300, 3127, { halfFov, aspect, near: 18, far: 42 }),
+    [aspect, halfFov],
   )
   const starMaterial = useMemo(
     () => createPointMaterial(closeUp ? 0.34 : 0.62, pointScale),
@@ -134,19 +140,26 @@ export function CosmicEnvironment({
   }, [dustGeometry, starGeometry])
 
   useFrame((_, delta) => {
-    if (prefersReducedMotion) return
-
-    const easing = 1 - Math.exp(-delta * 1.4)
     const far = farLayer.current
     const near = nearLayer.current
     if (!far || !near) return
 
-    far.position.x += (-camera.position.x * 0.035 - far.position.x) * easing
-    far.position.y += (-camera.position.y * 0.035 - far.position.y) * easing
-    near.position.x += (-camera.position.x * 0.075 - near.position.x) * easing
-    near.position.y += (-camera.position.y * 0.075 - near.position.y) * easing
-    far.rotation.y += delta * 0.0006
-    near.rotation.y += delta * 0.001
+    if (!prefersReducedMotion) elapsed.current += delta
+
+    far.position.copy(camera.position)
+    far.quaternion.copy(camera.quaternion)
+    near.position.copy(camera.position)
+    near.quaternion.copy(camera.quaternion)
+
+    if (!prefersReducedMotion) {
+      const time = elapsed.current
+      far.position.x += Math.sin(time * 0.08) * 0.3
+      far.position.y += Math.cos(time * 0.06) * 0.2
+      near.position.x += Math.sin(time * 0.11 + 1) * 0.55
+      near.position.y += Math.cos(time * 0.09 + 1) * 0.35
+      far.rotateZ(Math.sin(time * 0.025) * 0.012)
+      near.rotateZ(Math.sin(time * 0.035 + 1) * 0.02)
+    }
   })
 
   return (

@@ -9,6 +9,7 @@ import { StructureInfoPanel } from './features/neuron/components/StructureInfoPa
 import { SynapseControls } from './features/neuron/components/SynapseControls'
 import { useNeuronSelection } from './features/neuron/hooks/useNeuronSelection'
 import { NeuronScene } from './features/neuron/NeuronScene'
+import { CreatorPage } from './features/creator/CreatorPage'
 import type { BrainSelection, ExhibitView } from './features/neuron/types'
 import './App.css'
 
@@ -61,7 +62,10 @@ function App() {
   const brainOrientation = useRef({ x: 0, y: 0 })
   const navigationRef = useRef<HTMLButtonElement>(null)
   const [modelStatus, setModelStatus] = useState<ModelStatusProps['state']>('loading')
-  const [view, setView] = useState<ExhibitView>('neuron')
+  const [view, setView] = useState<ExhibitView>('brain')
+  const [isCreator, setIsCreator] = useState(() =>
+    window.location.pathname.replace(/\/+$/, '') === '/creator',
+  )
   const [brainSelection, setBrainSelection] = useState<BrainSelection | null>(null)
   const [brainResetKey, setBrainResetKey] = useState(0)
   const [runState, setRunState] = useState<'idle' | 'playing' | 'paused' | 'complete'>('idle')
@@ -89,6 +93,10 @@ function App() {
     setModelStatus('loading')
   }, [])
   const handleNavigate = useCallback((nextView: ExhibitView) => {
+    if (isCreator) {
+      window.history.pushState({}, '', '/')
+      setIsCreator(false)
+    }
     setView(nextView)
     setModelStatus('loading')
     setBrainSelection(null)
@@ -102,9 +110,23 @@ function App() {
       setElapsed(0)
     }
     if (nextView === 'brain') close()
-  }, [close])
+  }, [close, isCreator])
+  const handleCreator = useCallback(() => {
+    if (!isCreator) window.history.pushState({}, '', '/creator')
+    setIsCreator(true)
+  }, [isCreator])
 
   useEffect(() => {
+    const handlePopState = () => {
+      setIsCreator(window.location.pathname.replace(/\/+$/, '') === '/creator')
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (isCreator) return
     if (!state.selected && view !== 'synapse') return
 
     const handleEscape = (event: globalThis.KeyboardEvent) => {
@@ -117,7 +139,7 @@ function App() {
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [brainSelection, handleBackToNeuron, handleClose, state.selected, view])
+  }, [brainSelection, handleBackToNeuron, handleClose, isCreator, state.selected, view])
 
   const handleExploreSynapse = useCallback(() => {
     setView('synapse')
@@ -125,7 +147,8 @@ function App() {
     setBrainSelection(null)
     setRunState('idle')
     setElapsed(0)
-  }, [])
+    close()
+  }, [close])
 
   const handleSendSignal = useCallback(() => {
     setElapsed(0)
@@ -196,6 +219,17 @@ function App() {
     event.preventDefault()
   }
 
+  if (isCreator) {
+    return (
+      <CreatorPage
+        view={view}
+        prefersReducedMotion={prefersReducedMotion}
+        onNavigate={handleNavigate}
+        onCreator={handleCreator}
+      />
+    )
+  }
+
   return (
     <main className="experience" aria-labelledby="page-title">
       <div
@@ -255,22 +289,29 @@ function App() {
         <h1 id="page-title">THE INVISIBLE</h1>
         <p>An exploration of the architecture of thought.</p>
       </header>
-      <ExhibitNavigation view={view} onNavigate={handleNavigate} />
-      {view === 'neuron' && (
-        <p className="scale-note">
-          A representative neuron; the link between brain and cellular scales is educational.
-        </p>
-      )}
+      <ExhibitNavigation
+        view={view}
+        onNavigate={handleNavigate}
+        onCreator={handleCreator}
+      />
       {view === 'brain' ? (
-        <BrainOverviewControls
-          selection={brainSelection}
-          onSelect={handleBrainSelect}
-          onResetView={() => {
-            brainOrientation.current.x = 0
-            brainOrientation.current.y = 0
-            setBrainResetKey((key) => key + 1)
-          }}
-        />
+        <>
+          <div className="brain-view-tools">
+            <button
+              className="brain-view-tools__reset"
+              type="button"
+              onClick={() => {
+                brainOrientation.current.x = 0
+                brainOrientation.current.y = 0
+                setBrainResetKey((key) => key + 1)
+              }}
+            >
+              Reset view
+            </button>
+            <p>Schematic anatomy; illustrative colours.</p>
+          </div>
+          <BrainOverviewControls selection={brainSelection} />
+        </>
       ) : view === 'neuron' ? (
         <>
           <AnatomicalNavigation
@@ -289,7 +330,6 @@ function App() {
           elapsed={elapsed}
           modelLoaded={modelStatus === 'loaded'}
           slowMotion={slowMotion}
-          onBack={handleBackToNeuron}
           onSend={handleSendSignal}
           onPauseResume={handlePauseResume}
           onReset={handleResetSignal}
